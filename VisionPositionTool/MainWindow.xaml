@@ -1,0 +1,474 @@
+<Window x:Class="VisionPositionTool.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:sys="clr-namespace:System;assembly=mscorlib"
+        xmlns:ctrl="clr-namespace:VisionPositionTool.Controls"
+        xmlns:conv="clr-namespace:VisionPositionTool.Converters"
+        Title="视觉定位工具 (HALCON 24.11)"
+        Height="780" Width="1280" WindowStartupLocation="CenterScreen">
+    <Window.Resources>
+        <conv:InverseBoolConverter x:Key="InverseBool" />
+        <conv:BoolToVisConverter x:Key="BoolToVis" />
+        <conv:MatchModeConverter x:Key="ModeSel" />
+
+        <x:Array x:Key="NumLevelsOptions" Type="{x:Type sys:String}">
+            <sys:String>auto</sys:String><sys:String>1</sys:String><sys:String>2</sys:String><sys:String>3</sys:String>
+            <sys:String>4</sys:String><sys:String>5</sys:String><sys:String>6</sys:String><sys:String>8</sys:String><sys:String>10</sys:String>
+        </x:Array>
+        <x:Array x:Key="AngleStepOptions" Type="{x:Type sys:String}">
+            <sys:String>auto</sys:String><sys:String>0</sys:String><sys:String>1</sys:String><sys:String>2</sys:String><sys:String>3</sys:String>
+            <sys:String>5</sys:String><sys:String>10</sys:String><sys:String>15</sys:String><sys:String>30</sys:String>
+        </x:Array>
+        <x:Array x:Key="ShapeSubPixelOptions" Type="{x:Type sys:String}">
+            <sys:String>least_squares</sys:String><sys:String>least_squares_high</sys:String><sys:String>least_squares_very_high</sys:String>
+            <sys:String>max_deformation 1</sys:String><sys:String>max_deformation 2</sys:String>
+            <sys:String>interpolation</sys:String><sys:String>none</sys:String>
+        </x:Array>
+        <x:Array x:Key="OptimizationOptions" Type="{x:Type sys:String}">
+            <sys:String>auto</sys:String><sys:String>none</sys:String><sys:String>point_reduction_low</sys:String>
+            <sys:String>point_reduction_medium</sys:String><sys:String>point_reduction_high</sys:String><sys:String>no_pregeneration</sys:String>
+        </x:Array>
+        <x:Array x:Key="MetricOptions" Type="{x:Type sys:String}">
+            <sys:String>use_polarity</sys:String><sys:String>ignore_global_polarity</sys:String>
+            <sys:String>ignore_local_polarity</sys:String><sys:String>ignore_color_polarity</sys:String>
+        </x:Array>
+        <!-- 灰度匹配（NCC）的 Metric 只接受这两种，选项独立，避免选到非法值报 #1305 -->
+        <x:Array x:Key="NccMetricOptions" Type="{x:Type sys:String}">
+            <sys:String>use_polarity</sys:String><sys:String>ignore_global_polarity</sys:String>
+        </x:Array>
+        <!-- 灰度模板匹配（create_template）的灰度值模式 -->
+        <x:Array x:Key="GrayMetricOptions" Type="{x:Type sys:String}">
+            <sys:String>original</sys:String><sys:String>normalized</sys:String>
+        </x:Array>
+        <x:Array x:Key="GraySubPixelOptions" Type="{x:Type sys:String}">
+            <sys:String>true</sys:String><sys:String>false</sys:String>
+        </x:Array>
+        <x:Array x:Key="ContrastOptions" Type="{x:Type sys:String}">
+            <sys:String>auto</sys:String><sys:String>10</sys:String><sys:String>20</sys:String><sys:String>30</sys:String><sys:String>40</sys:String>
+            <sys:String>50</sys:String><sys:String>80</sys:String><sys:String>100</sys:String>
+        </x:Array>
+        <x:Array x:Key="MinContrastOptions" Type="{x:Type sys:String}">
+            <sys:String>auto</sys:String><sys:String>0</sys:String><sys:String>1</sys:String><sys:String>2</sys:String><sys:String>5</sys:String>
+            <sys:String>10</sys:String><sys:String>20</sys:String>
+        </x:Array>
+        <x:Array x:Key="NccSubPixelOptions" Type="{x:Type sys:String}">
+            <sys:String>true</sys:String><sys:String>false</sys:String><sys:String>interpolation</sys:String>
+        </x:Array>
+        <!-- 几何拟合（edges_sub_pix + fit_*_contour_xld） -->
+        <x:Array x:Key="FitTypeOptions" Type="{x:Type sys:String}">
+            <sys:String>圆</sys:String><sys:String>直线</sys:String><sys:String>矩形</sys:String><sys:String>椭圆</sys:String>
+        </x:Array>
+        <x:Array x:Key="FitEdgeFilterOptions" Type="{x:Type sys:String}">
+            <sys:String>canny</sys:String><sys:String>deriche2</sys:String><sys:String>lanser2</sys:String>
+            <sys:String>mshen</sys:String><sys:String>sobel_fast</sys:String>
+        </x:Array>
+    </Window.Resources>
+
+    <DockPanel>
+        <!-- ======= 顶部工具栏 ======= -->
+        <Border DockPanel.Dock="Top" Background="#2D3A4B" Padding="8,6">
+            <DockPanel>
+                <Button Content="模板ROI" Width="80" Margin="0,0,6,0" Padding="6,3" Click="BtnTemplateRoi_Click"
+                        IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}" />
+                <Button Content="搜索框" Width="80" Margin="0,0,6,0" Padding="6,3" Click="BtnSearchRoi_Click"
+                        IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}" />
+                <Button Content="清除ROI" Width="80" Margin="0,0,6,0" Padding="6,3" Click="BtnClearRoi_Click"
+                        IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}" />
+                <Button x:Name="BtnRunAll" Content="执行全部匹配" Width="110" Margin="0,0,6,0" Padding="6,3" FontWeight="Bold" Click="BtnRunAllMatch_Click"
+                        IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}" />
+                <Button Content="保存模板" Width="80" Margin="0,0,6,0" Padding="6,3" Click="BtnSaveModel_Click"
+                        IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}" />
+                <Button Content="加载模板" Width="80" Margin="0,0,6,0" Padding="6,3" Click="BtnLoadModel_Click"
+                        IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}" />
+
+                <Separator Width="1" Background="#557" Margin="4,2,8,2" />
+
+                <RadioButton Content="模板匹配" Foreground="White" VerticalAlignment="Center" Margin="0,0,14,0"
+                             IsChecked="{Binding MatchMode, Converter={StaticResource ModeSel}, ConverterParameter=shape}"
+                             IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}" />
+                <RadioButton Content="相关性匹配" Foreground="White" VerticalAlignment="Center" Margin="0,0,14,0"
+                             IsChecked="{Binding MatchMode, Converter={StaticResource ModeSel}, ConverterParameter=ncc}"
+                             IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}" />
+                <RadioButton Content="灰度模板" Foreground="White" VerticalAlignment="Center" Margin="0,0,14,0"
+                             IsChecked="{Binding MatchMode, Converter={StaticResource ModeSel}, ConverterParameter=gray}"
+                             IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}" />
+                <RadioButton Content="几何拟合" Foreground="White" VerticalAlignment="Center"
+                             IsChecked="{Binding MatchMode, Converter={StaticResource ModeSel}, ConverterParameter=fit}"
+                             IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}" />
+
+                <TextBlock Text="{Binding Status}" Foreground="#9FE08A" VerticalAlignment="Center"
+                           Margin="16,0,0,0" TextTrimming="CharacterEllipsis" />
+            </DockPanel>
+        </Border>
+
+        <!-- ======= 主体 ======= -->
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="230" />
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="220" MinWidth="150" />
+                <ColumnDefinition Width="*" MinWidth="400" />
+                <ColumnDefinition Width="300" />
+            </Grid.ColumnDefinitions>
+
+            <!-- 左：图像列表（横贯左栏整列，可滚动） -->
+            <Border Grid.Row="0" Grid.RowSpan="2" Grid.Column="0" BorderBrush="#333" BorderThickness="0,0,1,0" Background="#F5F6F8">
+                <DockPanel>
+                    <Border DockPanel.Dock="Top" Background="#E8EAEE" Padding="6,8">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <Button Content="＋ 导入图像（可多选）" Padding="6,4" Click="BtnImportImages_Click" />
+                                <Button Content="删除选中" Padding="6,4" Margin="6,0,0,0" Click="BtnDeleteImages_Click" />
+                            </StackPanel>
+                            <TextBlock Text="Ctrl/Shift 多选，Delete 删除" FontSize="10" Foreground="Gray" Margin="2,4,0,0" />
+                            <TextBlock Text="图像列表" FontWeight="Bold" Margin="2,8,0,0" />
+                        </StackPanel>
+                    </Border>
+                    <ListBox x:Name="ImageList" ItemsSource="{Binding Images}" SelectedItem="{Binding SelectedImage}"
+                             SelectionMode="Extended"
+                             SelectionChanged="ImageList_SelectionChanged" BorderThickness="0" Background="Transparent"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto" KeyDown="ImageList_KeyDown">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Margin="2,3">
+                                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding ResultSummary}" FontSize="11" Foreground="Gray" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+
+            <!-- 中：图像显示 -->
+            <Border Grid.Row="0" Grid.Column="1" BorderBrush="#333" BorderThickness="0,0,1,0">
+                <ctrl:HalconDisplay x:Name="Display" />
+            </Border>
+
+            <!-- 右：匹配参数（随类型切换） -->
+            <Border Grid.Row="0" Grid.Column="2" Background="#F5F6F8" Padding="6">
+                <GroupBox Header="匹配参数" Padding="6" BorderThickness="0"
+                          IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBool}}">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel>
+
+                            <!-- ===== 模板匹配参数（全） ===== -->
+                            <Grid Visibility="{Binding MatchMode, Converter={StaticResource ModeSel}, ConverterParameter=shape}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="92" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
+                                    <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
+                                    <RowDefinition /><RowDefinition /><RowDefinition />
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Grid.Row="0"  Grid.Column="0" Text="起始角度 (°)" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="0" Grid.Column="1" Margin="0,2">
+                                    <TextBox Text="{Binding Params.StartAngle, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="搜索起始角度，模板在此角度方向开始找" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="1"  Grid.Column="0" Text="角度范围 (°)" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,2">
+                                    <TextBox Text="{Binding Params.AngleExtent, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="在此角度范围内搜索，范围越大越慢" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="2"  Grid.Column="0" Text="最小分数" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="2" Grid.Column="1" Margin="0,2">
+                                    <TextBox Text="{Binding Params.MinScore, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="分数低于此值视为失败，越大要求越严" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="3"  Grid.Column="0" Text="匹配数量" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="3" Grid.Column="1" Margin="0,2">
+                                    <TextBox Text="{Binding Params.NumMatches, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="每张图最多输出几个匹配（分数从高到低）" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="4"  Grid.Column="0" Text="最大重叠" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="4" Grid.Column="1" Margin="0,2">
+                                    <TextBox Text="{Binding Params.MaxOverlap, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="匹配结果最大重叠比例，去掉同一目标重复匹配" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="5"  Grid.Column="0" Text="金字塔层数" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="5" Grid.Column="1" Margin="0,2">
+                                    <ComboBox IsEditable="True"
+                                       ItemsSource="{StaticResource NumLevelsOptions}"
+                                       Text="{Binding Params.NumLevels, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="多层分辨率搜索，层数多匹配快但对模糊敏感" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="6"  Grid.Column="0" Text="角度步长" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="6" Grid.Column="1" Margin="0,2">
+                                    <ComboBox IsEditable="True"
+                                       ItemsSource="{StaticResource AngleStepOptions}"
+                                       Text="{Binding Params.AngleStep, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="角度离散间隔，越小角度越精细但更慢" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="7"  Grid.Column="0" Text="亚像素精度" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="7" Grid.Column="1" Margin="0,2">
+                                    <ComboBox IsEditable="True"
+                                       ItemsSource="{StaticResource ShapeSubPixelOptions}"
+                                       Text="{Binding Params.ShapeSubPixel, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="结果亚像素细化方式，least_squares 精度最高" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="8"  Grid.Column="0" Text="优化方式" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="8" Grid.Column="1" Margin="0,2">
+                                    <ComboBox IsEditable="True"
+                                       ItemsSource="{StaticResource OptimizationOptions}"
+                                       Text="{Binding Params.Optimization, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="模型点缩减/预生成策略，一般用 auto" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="9"  Grid.Column="0" Text="度量方式" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="9" Grid.Column="1" Margin="0,2">
+                                    <ComboBox IsEditable="True"
+                                       ItemsSource="{StaticResource MetricOptions}"
+                                       Text="{Binding Params.Metric, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="边缘极性匹配策略，一般用 use_polarity" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="10" Grid.Column="0" Text="对比度" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="10" Grid.Column="1" Margin="0,2">
+                                    <ComboBox IsEditable="True"
+                                       ItemsSource="{StaticResource ContrastOptions}"
+                                       Text="{Binding Params.Contrast, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="选边阈值，越大只保留强边缘、模型轮廓更干净" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="11" Grid.Column="0" Text="最小对比度" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="11" Grid.Column="1" Margin="0,2">
+                                    <ComboBox IsEditable="True"
+                                       ItemsSource="{StaticResource MinContrastOptions}"
+                                       Text="{Binding Params.MinContrast, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="匹配时忽略低于此对比度的边，越大越抗噪声" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="12" Grid.Column="0" Text="贪心系数" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="12" Grid.Column="1" Margin="0,2">
+                                    <TextBox Text="{Binding Params.Greediness, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="搜索贪心程度，越大越快但可能漏检" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- ===== 相关性匹配参数（NCC） ===== -->
+                            <Grid Visibility="{Binding MatchMode, Converter={StaticResource ModeSel}, ConverterParameter=ncc}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="92" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
+                                    <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="起始角度 (°)" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="0" Grid.Column="1" Margin="0,2">
+                                    <TextBox Text="{Binding Params.StartAngle, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="搜索起始角度，模板在此角度方向开始找" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="角度范围 (°)" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,2">
+                                    <TextBox Text="{Binding Params.AngleExtent, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="在此角度范围内搜索，范围越大越慢" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="最小分数" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="2" Grid.Column="1" Margin="0,2">
+                                    <TextBox Text="{Binding Params.MinScore, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="分数低于此值视为失败，越大要求越严" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="匹配数量" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="3" Grid.Column="1" Margin="0,2">
+                                    <TextBox Text="{Binding Params.NumMatches, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="每张图最多输出几个匹配（分数从高到低）" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="4" Grid.Column="0" Text="最大重叠" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="4" Grid.Column="1" Margin="0,2">
+                                    <TextBox Text="{Binding Params.MaxOverlap, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="匹配结果最大重叠比例，去掉同一目标重复匹配" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="5" Grid.Column="0" Text="金字塔层数" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="5" Grid.Column="1" Margin="0,2">
+                                    <ComboBox IsEditable="True"
+                                       ItemsSource="{StaticResource NumLevelsOptions}"
+                                       Text="{Binding Params.NumLevels, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="多层分辨率搜索，层数多匹配快但对模糊敏感" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="6" Grid.Column="0" Text="角度步长" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="6" Grid.Column="1" Margin="0,2">
+                                    <ComboBox IsEditable="True"
+                                       ItemsSource="{StaticResource AngleStepOptions}"
+                                       Text="{Binding Params.AngleStep, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="角度离散间隔，越小角度越精细但更慢" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="7" Grid.Column="0" Text="亚像素精度" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="7" Grid.Column="1" Margin="0,2">
+                                    <ComboBox IsEditable="True"
+                                       ItemsSource="{StaticResource NccSubPixelOptions}"
+                                       Text="{Binding Params.NccSubPixel, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="结果亚像素细化方式：true/false/interpolation" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="8" Grid.Column="0" Text="度量方式" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="8" Grid.Column="1" Margin="0,2">
+                                    <ComboBox IsEditable="True"
+                                       ItemsSource="{StaticResource NccMetricOptions}"
+                                       Text="{Binding Params.Metric, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="相关性计算方式，一般保持默认即可（相关性匹配仅支持前两种）" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- ===== 灰度模板匹配参数（create_template / best_match） ===== -->
+                            <Grid Visibility="{Binding MatchMode, Converter={StaticResource ModeSel}, ConverterParameter=gray}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="92" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="最小分数" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="0" Grid.Column="1" Margin="0,2">
+                                    <TextBox Text="{Binding Params.MinScore, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="分数低于此值视为失败，越大要求越严" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="金字塔层数" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,2">
+                                    <ComboBox IsEditable="True"
+                                       ItemsSource="{StaticResource NumLevelsOptions}"
+                                       Text="{Binding Params.NumLevels, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="分层加速搜索，层数多匹配快（auto 用 4 层）" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="灰度值模式" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="2" Grid.Column="1" Margin="0,2">
+                                    <ComboBox IsEditable="True"
+                                       ItemsSource="{StaticResource GrayMetricOptions}"
+                                       Text="{Binding Params.GrayMetric, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="original=原始灰度比对；normalized=归一化，抗光照变化" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="亚像素精度" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="3" Grid.Column="1" Margin="0,2">
+                                    <ComboBox IsEditable="True"
+                                       ItemsSource="{StaticResource GraySubPixelOptions}"
+                                       Text="{Binding Params.GraySubPixel, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="true=亚像素定位，精度更高" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2"
+                                           Text="灰度模板仅返回一个最佳匹配，不支持旋转/缩放，适合目标姿态固定的场景"
+                                           FontSize="10" Foreground="Gray" TextWrapping="Wrap" Margin="0,2" />
+                            </Grid>
+
+                            <!-- ===== 几何拟合参数（edges_sub_pix + fit_*_contour_xld） ===== -->
+                            <Grid Visibility="{Binding MatchMode, Converter={StaticResource ModeSel}, ConverterParameter=fit}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="92" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
+                                    <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
+                                    <RowDefinition />
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="拟合类型" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="0" Grid.Column="1" Margin="0,2">
+                                    <ComboBox ItemsSource="{StaticResource FitTypeOptions}"
+                                              SelectedItem="{Binding Params.FitType}" />
+                                    <TextBlock Text="把 ROI 内最长边缘拟合为圆/直线/矩形/椭圆" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="边缘算子" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,2">
+                                    <ComboBox IsEditable="True"
+                                       ItemsSource="{StaticResource FitEdgeFilterOptions}"
+                                       Text="{Binding Params.FitEdgeFilter, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="canny 通用；lanser2/deriche2 平滑更强" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="平滑系数" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="2" Grid.Column="1" Margin="0,2">
+                                    <TextBox Text="{Binding Params.FitAlpha, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="Alpha：canny 越小越平滑，其余算子越大越平滑" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="低阈值" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="3" Grid.Column="1" Margin="0,2">
+                                    <TextBox Text="{Binding Params.FitLow, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="边缘滞后阈值下界，只填数字（>0）" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="4" Grid.Column="0" Text="高阈值" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="4" Grid.Column="1" Margin="0,2">
+                                    <TextBox Text="{Binding Params.FitHigh, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="必须 ≥ 低阈值，越高只留强边缘" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="5" Grid.Column="0" Text="最小轮廓长度" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="5" Grid.Column="1" Margin="0,2">
+                                    <TextBox Text="{Binding Params.FitMinContourLength, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="短于该值的轮廓丢弃，用于滤噪声（像素）" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="6" Grid.Column="0" Text="断边间隙" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="6" Grid.Column="1" Margin="0,2">
+                                    <TextBox Text="{Binding Params.FitGap, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="&gt;0 时合并端点间隙小于该值、且合并后仍能通过残差过滤的相邻轮廓（被遮挡的边/圆弧断口）；0=不合并" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="7" Grid.Column="0" Text="最大拟合误差" VerticalAlignment="Center" Margin="0,2" />
+                                <StackPanel Grid.Row="7" Grid.Column="1" Margin="0,2">
+                                    <TextBox Text="{Binding Params.FitMaxError, UpdateSourceTrigger=LostFocus}" />
+                                    <TextBlock Text="只接受残差 ≤ 此值的轮廓（像素），自动排除多边形边界/折角等非目标轮廓；0=不限制（取最长轮廓）" FontSize="10" Foreground="Gray" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="8" Grid.Column="0" Grid.ColumnSpan="2"
+                                           Text="ROI 建议比目标略大一圈；直线拟合建议 ROI 只含目标边线段"
+                                           FontSize="10" Foreground="Gray" TextWrapping="Wrap" Margin="0,2" />
+                            </Grid>
+                        </StackPanel>
+                    </ScrollViewer>
+                </GroupBox>
+                </Border>
+
+            <!-- 下：匹配结果（横跨中栏+右栏，位于图像显示与匹配参数下方） -->
+            <GroupBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Header="匹配结果" Padding="6" Margin="6,6,6,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,4">
+                        <TextBlock Text="当前图像：" Foreground="Gray" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding SelectedImage.Name}" Foreground="#1E6FB8" VerticalAlignment="Center" Margin="4,0,0,0" />
+                    </StackPanel>
+                    <DataGrid Grid.Row="1" ItemsSource="{Binding SelectedImage.Results}"
+                              AutoGenerateColumns="False" CanUserAddRows="False"
+                              IsReadOnly="True" HeadersVisibility="Column"
+                              GridLinesVisibility="Horizontal" BorderThickness="0">
+                        <DataGrid.Style>
+                            <Style TargetType="DataGrid">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding MatchMode}" Value="fit">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.Style>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="序号"  Binding="{Binding Index}"   Width="40" />
+                            <DataGridTextColumn Header="行 Y"  Binding="{Binding Row}"     Width="60" />
+                            <DataGridTextColumn Header="列 X"  Binding="{Binding Col}"     Width="60" />
+                            <DataGridTextColumn Header="角度°" Binding="{Binding Angle}"   Width="60" />
+                            <DataGridTextColumn Header="分数"  Binding="{Binding Score}"   Width="60" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <!-- 几何拟合专用结果列：尺寸1=半径/半长/线长，尺寸2=半宽/半径2，误差=RMS（像素） -->
+                    <DataGrid Grid.Row="1" ItemsSource="{Binding SelectedImage.Results}"
+                              Visibility="{Binding MatchMode, Converter={StaticResource ModeSel}, ConverterParameter=fit}"
+                              AutoGenerateColumns="False" CanUserAddRows="False"
+                              IsReadOnly="True" HeadersVisibility="Column"
+                              GridLinesVisibility="Horizontal" BorderThickness="0">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="序号"  Binding="{Binding Index}"    Width="40" />
+                            <DataGridTextColumn Header="类型"  Binding="{Binding FitType}"  Width="50" />
+                            <DataGridTextColumn Header="行 Y"  Binding="{Binding Row}"      Width="60" />
+                            <DataGridTextColumn Header="列 X"  Binding="{Binding Col}"      Width="60" />
+                            <DataGridTextColumn Header="角度°" Binding="{Binding Angle}"    Width="60" />
+                            <DataGridTextColumn Header="尺寸1" Binding="{Binding Size1}"    Width="65" />
+                            <DataGridTextColumn Header="尺寸2" Binding="{Binding Size2}"    Width="65" />
+                            <DataGridTextColumn Header="误差"  Binding="{Binding FitError}" Width="70" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </GroupBox>
+        </Grid>
+    </DockPanel>
+</Window>

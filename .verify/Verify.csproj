@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <LangVersion>7.3</LangVersion>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>Verify</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- 直接引用 .testout 的新构建产物（避免主项目 bin\Debug 被运行中的程序锁定） -->
+    <Reference Include="VisionPositionTool">
+      <HintPath>..\.testout\VisionPositionTool.exe</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="halcondotnet">
+      <HintPath>E:\halcon\MVTec\HALCON-24.11-Progress-Steady\bin\dotnet35\halcondotnet.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

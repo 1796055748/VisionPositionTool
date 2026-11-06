@@ -1,0 +1,64 @@
+=== Image_20220424161805735.bmp ===
+edge contours: 661
+  #0 len=1975 bbox r[276,721] c[265,895] pts=1972 line ang=67.47deg rms=165.71px
+  #1 len=636 bbox r[505,691] c[720,897] pts=635 line ang=-55.66deg rms=88.00px
+  #2 len=556 bbox r[297,483] c[722,898] pts=557 line ang=-73.18deg rms=67.49px
+  #3 len=240 bbox r[264,266] c[379,619] pts=241 line ang=-179.69deg rms=0.14px
+  #4 len=178 bbox r[265,266] c[658,836] pts=179 line ang=-180.00deg rms=0.21px
+  #5 len=165 bbox r[440,562] c[446,548] pts=214 line ang=-54.56deg rms=3.36px
+=== Image_20220424161855055.bmp ===
+edge contours: 568
+  #0 len=1375 bbox r[257,718] c[389,849] pts=1379 line ang=-75.61deg rms=174.51px
+  #1 len=709 bbox r[262,457] c[847,1032] pts=708 line ang=0.00deg rms=136.85px
+  #2 len=603 bbox r[469,664] c[862,1045] pts=603 line ang=-61.68deg rms=77.16px
+  #3 len=265 bbox r[671,688] c[539,802] pts=264 line ang=176.15deg rms=0.31px
+  #4 len=153 bbox r[642,650] c[882,1029] pts=158 line ang=-3.42deg rms=1.22px
+  #5 len=133 bbox r[461,523] c[530,644] pts=152 line ang=-152.42deg rms=0.97px
+=== Image_20220424161917191.bmp ===
+edge contours: 500
+  #0 len=1317 bbox r[286,731] c[439,877] pts=1318 line ang=-99.22deg rms=160.74px
+  #1 len=520 bbox r[509,698] c[902,1077] pts=522 line ang=115.73deg rms=60.18px
+  #2 len=498 bbox r[728,740] c[450,940] pts=499 line ang=178.56deg rms=0.87px
+  #3 len=497 bbox r[302,491] c[896,1075] pts=499 line ang=-104.90deg rms=57.31px
+  #4 len=227 bbox r[278,283] c[511,738] pts=228 line ang=178.66deg rms=0.14px
+  #5 len=213 bbox r[326,535] c[439,449] pts=217 line ang=-91.19deg rms=2.10px
+=== Image_20220424161932488.bmp ===
+edge contours: 453
+  #0 len=1334 bbox r[245,720] c[324,792] pts=1330 line ang=-94.44deg rms=163.35px
+  #1 len=487 bbox r[247,445] c[780,970] pts=486 line ang=-100.45deg rms=60.21px
+  #2 len=446 bbox r[462,651] c[802,993] pts=447 line ang=-124.93deg rms=47.87px
+  #3 len=446 bbox r[430,543] c[502,718] pts=493 line ang=31.23deg rms=42.70px
+  #4 len=222 bbox r[275,372] c[841,890] pts=246 line ang=0.00deg rms=34.69px
+  #5 len=188 bbox r[476,554] c[529,589] pts=227 line ang=125.60deg rms=24.40px
+=== Image_20220424161954702.bmp ===
+edge contours: 406
+  #0 len=1336 bbox r[188,625] c[363,797] pts=1333 line ang=-86.37deg rms=164.12px
+  #1 len=642 bbox r[420,607] c[819,997] pts=644 line ang=-54.97deg rms=89.04px
+  #2 len=516 bbox r[212,399] c[822,998] pts=522 line ang=-111.85deg rms=59.13px
+  #3 len=322 bbox r[599,608] c[454,770] pts=322 line ang=-179.10deg rms=0.67px
+  #4 len=280 bbox r[321,458] c[446,481] pts=290 line ang=-100.79deg rms=71.40px
+  #5 len=277 bbox r[323,469] c[456,489] pts=277 line ang=-101.31deg rms=69.07px
+=== Image_20220424162020238.bmp ===
+edge contours: 619
+  #0 len=1292 bbox r[165,599] c[354,786] pts=1290 line ang=-89.82deg rms=161.58px
+  #1 len=711 bbox r[395,581] c[810,985] pts=710 line ang=0.00deg rms=150.82px
+  #2 len=710 bbox r[187,373] c[811,986] pts=708 line ang=0.00deg rms=138.00px
+  #3 len=302 bbox r[575,579] c[438,738] pts=303 line ang=-179.40deg rms=0.28px
+  #4 len=189 bbox r[288,364] c[573,645] pts=199 line ang=169.93deg rms=25.23px
+  #5 len=169 bbox r[559,568] c[819,980] pts=173 line ang=-179.30deg rms=1.39px
+=== Image_20220424162053608.bmp ===
+edge contours: 581
+  #0 len=1311 bbox r[272,708] c[279,710] pts=1313 line ang=-96.74deg rms=161.45px
+  #1 len=713 bbox r[290,476] c[734,912] pts=714 line ang=0.00deg rms=128.90px
+  #2 len=610 bbox r[260,265] c[289,899] pts=611 line ang=179.43deg rms=0.17px
+  #3 len=591 bbox r[257,263] c[313,904] pts=592 line ang=179.40deg rms=0.22px
+  #4 len=513 bbox r[498,683] c[724,912] pts=515 line ang=11.18deg rms=60.88px
+  #5 len=429 bbox r[708,717] c[282,702] pts=429 line ang=179.53deg rms=0.81px
+=== Image_20220424162120999.bmp ===
+edge contours: 535
+  #0 len=1310 bbox r[185,633] c[406,853] pts=1307 line ang=100.17deg rms=161.08px
+  #1 len=713 bbox r[224,415] c[871,1055] pts=714 line ang=0.00deg rms=132.69px
+  #2 len=711 bbox r[431,623] c[862,1045] pts=711 line ang=0.00deg rms=137.72px
+  #3 len=509 bbox r[176,197] c[533,1041] pts=509 line ang=-177.69deg rms=0.15px
+  #4 len=492 bbox r[310,471] c[531,729] pts=550 line ang=141.41deg rms=96.11px
+  #5 len=371 bbox r[185,200] c[670,1040] pts=371 line ang=-177.70deg rms=0.13px

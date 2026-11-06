@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//e/halcon/**)",
+      "Bash(dotnet --list-sdks)",
+      "Bash(powershell -NoProfile -Command 'Get-Process -Name '\\\\''VisionPositionTool'\\\\'' -ErrorAction SilentlyContinue | Stop-Process -Force 2>$null; Start-Sleep 1')",
+      "Bash(dotnet build *)",
+      "Bash(rm -f demo_result.txt)",
+      "Bash(timeout 60 ./bin/Debug/net48/VisionPositionTool.exe --demo testdata/scene.png 100 140 340 420 demo_result.txt)",
+      "Bash(echo \"demo exit=$?\")",
+      "Bash(powershell -NoProfile -Command ' *)"
+    ]
+  }
+}

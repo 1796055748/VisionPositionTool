@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <RootNamespace>VisionPositionTool</RootNamespace>
+    <AssemblyName>VisionPositionTool</AssemblyName>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- HALCON .NET 接口（HALCON 24.11，x64） -->
+    <Reference Include="halcondotnet">
+      <HintPath>E:\halcon\MVTec\HALCON-24.11-Progress-Steady\bin\dotnet35\halcondotnet.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 复制 HALCON 原生运行库到输出目录 -->
+    <None Include="E:\halcon\MVTec\HALCON-24.11-Progress-Steady\bin\x64-win64\halcon.dll">
+      <Link>halcon.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="E:\halcon\MVTec\HALCON-24.11-Progress-Steady\bin\x64-win64\hcanvas.dll">
+      <Link>hcanvas.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

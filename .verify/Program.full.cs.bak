@@ -1,0 +1,467 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using HalconDotNet;
+using VisionPositionTool.Core;
+using VisionPositionTool.Models;
+
+/// <summary>
+/// text.bmp 模板匹配验证：解码（WPF 流式，绕开 HALCON BMP fail-fast）→ 中心 ROI 建模板
+/// → 同图匹配 → 打印匹配结果与轮廓坐标范围，对照 ROI 判断轮廓位置是否正确。
+/// </summary>
+internal static class Program
+{
+    private static void Main()
+    {
+        string path = @"D:\cSharp\资料\项目\tool\VisionPositionTool\testdata\text.bmp";
+        HImage img = ReadImageRobust(path);
+        HOperatorSet.GetImageSize(img, out HTuple w, out HTuple h);
+        Console.WriteLine("image: " + w.I + " x " + h.I);
+
+        // ROI：图中心 400x400（工件中心文字区域）
+        double r1 = h.I / 2.0 - 200, c1 = w.I / 2.0 - 200, r2 = h.I / 2.0 + 200, c2 = w.I / 2.0 + 200;
+        HOperatorSet.GenRectangle1(out HObject roi, r1, c1, r2, c2);
+        Console.WriteLine("ROI: r[" + r1 + "," + r2 + "] c[" + c1 + "," + c2 + "]  ref=(" + (r1 + r2) / 2 + "," + (c1 + c2) / 2 + ")");
+
+        var tool = new ShapeMatchTool();
+        var p = new TemplateParams();
+        p.Contrast = "auto"; p.MinContrast = "auto";
+        if (!tool.CreateModelFromRegion(img, roi, p, out string msg)) { Console.WriteLine("create FAIL: " + msg); return; }
+        Console.WriteLine("create OK");
+
+        // 模板轮廓（模型坐标系，参考点 0,0）→ 平移到参考点后的绝对范围
+        tool.TryGetBaseContour(out var br, out var bc);
+        double refR = (r1 + r2) / 2, refC = (c1 + c2) / 2;
+        for (int i = 0; i < br.Count; i++)
+        {
+            double mnR = double.MaxValue, mxR = double.MinValue, mnC = double.MaxValue, mxC = double.MinValue;
+            for (int k = 0; k < br[i].Length; k++)
+            {
+                double rr = br[i][k] + refR, cc = bc[i][k] + refC;
+                if (rr < mnR) mnR = rr; if (rr > mxR) mxR = rr;
+                if (cc < mnC) mnC = cc; if (cc > mxC) mxC = cc;
+            }
+            Console.WriteLine("model contour part " + i + ": " + br[i].Length + " pts, range r[" + mnR.ToString("F1") + "," + mxR.ToString("F1") + "] c[" + mnC.ToString("F1") + "," + mxC.ToString("F1") + "]");
+        }
+
+        // ASCII 叠加图：ROI 区域亮度 + 模型轮廓点（*）叠加，直观看到轮廓对应什么特征
+        Console.WriteLine("== model contour over ROI (100x50, *=contour) ==");
+        HOperatorSet.ReduceDomain(img, roi, out HObject reduced);
+        HOperatorSet.Rgb1ToGray(reduced, out HObject g0);
+        HImage gray = new HImage(g0);
+        g0.Dispose();
+        IntPtr ptr = gray.GetImagePointer1(out string gtype, out int gw, out int gh);
+        byte[] px = new byte[gw * gh];
+        System.Runtime.InteropServices.Marshal.Copy(ptr, px, 0, gw * gh);
+        int cols = 100, rows = 50;
+        int cellW = (int)((c2 - c1) / cols), cellH = (int)((r2 - r1) / rows);
+        // 轮廓点 → 格子集合
+        var mark = new bool[rows, cols];
+        for (int i = 0; i < br.Count; i++)
+            for (int k = 0; k < br[i].Length; k++)
+            {
+                int cr = (int)((br[i][k] + refR - r1) / cellH);
+                int cc = (int)((bc[i][k] + refC - c1) / cellW);
+                if (cr >= 0 && cr < rows && cc >= 0 && cc < cols) mark[cr, cc] = true;
+            }
+        for (int yy = 0; yy < rows; yy++)
+        {
+            string line = "";
+            for (int xx = 0; xx < cols; xx++)
+            {
+                if (mark[yy, xx]) { line += "*"; continue; }
+                int sum = 0, n = 0;
+                // 注意：reduce_domain 后图像仍是全图尺寸，像素按全图 stride 排列，索引需加 ROI 偏移
+                for (int y = yy * cellH; y < (yy + 1) * cellH && y < gh; y += 2)
+                    for (int x = xx * cellW; x < (xx + 1) * cellW && x < gw; x += 2)
+                    { sum += px[(int)(r1 + y) * gw + (int)(c1 + x)]; n++; }
+                int g = n > 0 ? sum / n : 0;
+                if (g > 40) line += "@";
+                else if (g > 25) line += "#";
+                else if (g > 15) line += "+";
+                else if (g > 8) line += ".";
+                else line += " ";
+            }
+            Console.WriteLine(line);
+        }
+        reduced.Dispose(); gray.Dispose();
+
+        // 匹配 20 个（验证多匹配）
+        Console.WriteLine("== match 20 ==");
+        p.NumMatches = 20;
+        var outcome = tool.RunMatch(img, p, null);
+        foreach (var res in outcome.Results)
+            Console.WriteLine("match #" + res.Index + ": row=" + res.Row + " col=" + res.Col + " angle=" + res.Angle + " score=" + res.Score);
+
+        Console.WriteLine("total result contour parts: " + outcome.Contours.Count + ", crosses: " + outcome.Crosses.Count);
+
+        // 独立验证：用 HALCON 原生算子对 base part 0 直接做 #1 的 rigid 变换，对比 RunMatch 输出
+        if (outcome.Results.Count > 1)
+        {
+            var r1m = outcome.Results[1];
+            double angRad = r1m.Angle * Math.PI / 180.0;
+            HOperatorSet.VectorAngleToRigid(0, 0, 0, r1m.Row, r1m.Col, angRad, out HTuple hom2);
+            HOperatorSet.AffineTransPoint2d(hom2, new HTuple(br[0]), new HTuple(bc[0]), out HTuple tr2, out HTuple tc2);
+            double mnR = double.MaxValue, mxR = double.MinValue, mnC = double.MaxValue, mxC = double.MinValue;
+            double[] trr = tr2.DArr, tcc = tc2.DArr;
+            for (int k = 0; k < trr.Length; k++)
+            {
+                if (trr[k] < mnR) mnR = trr[k]; if (trr[k] > mxR) mxR = trr[k];
+                if (tcc[k] < mnC) mnC = tcc[k]; if (tcc[k] > mxC) mxC = tcc[k];
+            }
+            Console.WriteLine("native transform part0 of #1: r[" + mnR.ToString("F1") + "," + mxR.ToString("F1") + "] c[" + mnC.ToString("F1") + "," + mxC.ToString("F1") + "]");
+            // RunMatch 段 5 = 结果1 part0
+            double mnR2 = double.MaxValue, mxR2 = double.MinValue, mnC2 = double.MaxValue, mxC2 = double.MinValue;
+            foreach (var pt in outcome.Contours[5])
+            {
+                if (pt.Row < mnR2) mnR2 = pt.Row; if (pt.Row > mxR2) mxR2 = pt.Row;
+                if (pt.Col < mnC2) mnC2 = pt.Col; if (pt.Col > mxC2) mxC2 = pt.Col;
+            }
+            Console.WriteLine("RunMatch   seg5   of #1: r[" + mnR2.ToString("F1") + "," + mxR2.ToString("F1") + "] c[" + mnC2.ToString("F1") + "," + mxC2.ToString("F1") + "]  count=" + outcome.Contours[5].Count);
+            // 前 8 个点对比
+            Console.Write("native  pts: ");
+            for (int k = 0; k < Math.Min(8, trr.Length); k++) Console.Write("(" + trr[k].ToString("F1") + "," + tcc[k].ToString("F1") + ") ");
+            Console.WriteLine();
+            Console.Write("RunMatch pts: ");
+            for (int k = 0; k < Math.Min(8, outcome.Contours[5].Count); k++) Console.Write("(" + outcome.Contours[5][k].Row.ToString("F1") + "," + outcome.Contours[5][k].Col.ToString("F1") + ") ");
+            Console.WriteLine();
+            // 匹配后再确认 base parts 数
+            tool.TryGetBaseContour(out var brAfter, out var bcAfter);
+            Console.WriteLine("base parts after match: " + brAfter.Count);
+        }
+        // 验证每个结果的轮廓是否围绕其 (row,col)：每结果 5 段（base 5 段），段索引 = 结果序号*5
+        int partsPerResult = 5;
+        for (int ri = 0; ri < Math.Min(3, outcome.Results.Count); ri++)
+        {
+            var res = outcome.Results[ri];
+            double mnR = double.MaxValue, mxR = double.MinValue, mnC = double.MaxValue, mxC = double.MinValue;
+            for (int seg = ri * partsPerResult; seg < (ri + 1) * partsPerResult && seg < outcome.Contours.Count; seg++)
+                foreach (var pt in outcome.Contours[seg])
+                {
+                    if (pt.Row < mnR) mnR = pt.Row; if (pt.Row > mxR) mxR = pt.Row;
+                    if (pt.Col < mnC) mnC = pt.Col; if (pt.Col > mxC) mxC = pt.Col;
+                }
+            Console.WriteLine("result #" + ri + " at (" + res.Row + "," + res.Col + ") angle=" + res.Angle +
+                ": contour range r[" + mnR.ToString("F0") + "," + mxR.ToString("F0") + "] c[" + mnC.ToString("F0") + "," + mxC.ToString("F0") + "]");
+        }
+
+        // #1 轮廓叠加全图 ASCII：验证低分匹配的轮廓是否贴合图像特征
+        if (outcome.Contours.Count >= 10)
+        {
+            Console.WriteLine("== result #1 contour over full image (160x80, *=contour) ==");
+            HOperatorSet.Rgb1ToGray(img, out HObject fullGrayObj);
+            HImage fullGray = new HImage(fullGrayObj);
+            fullGrayObj.Dispose();
+            IntPtr fptr = fullGray.GetImagePointer1(out string ft, out int fw, out int fh);
+            byte[] fpx = new byte[fw * fh];
+            System.Runtime.InteropServices.Marshal.Copy(fptr, fpx, 0, fw * fh);
+            int fcols = 160, frows = 80;
+            int fcellW = fw / fcols, fcellH = fh / frows;
+            var fmark = new bool[frows, fcols];
+            for (int seg = 5; seg < 10 && seg < outcome.Contours.Count; seg++)
+                foreach (var pt in outcome.Contours[seg])
+                {
+                    int cr = (int)(pt.Row / fcellH), cc = (int)(pt.Col / fcellW);
+                    if (cr >= 0 && cr < frows && cc >= 0 && cc < fcols) fmark[cr, cc] = true;
+                }
+            for (int yy = 0; yy < frows; yy++)
+            {
+                string line = "";
+                for (int xx = 0; xx < fcols; xx++)
+                {
+                    if (fmark[yy, xx]) { line += "*"; continue; }
+                    int sum = 0, n = 0;
+                    for (int y = yy * fcellH; y < (yy + 1) * fcellH; y += 4)
+                        for (int x = xx * fcellW; x < (xx + 1) * fcellW; x += 4)
+                        { sum += fpx[y * fw + x]; n++; }
+                    int g = n > 0 ? sum / n : 0;
+                    if (g > 40) line += "@";
+                    else if (g > 25) line += "#";
+                    else if (g > 15) line += "+";
+                    else if (g > 8) line += ".";
+                    else line += " ";
+                }
+                Console.WriteLine(line);
+            }
+            fullGray.Dispose();
+        }
+
+        // 低对比度重建（参数回归验证）：轮廓点数变化但仍是圆形特征（图上无文字）
+        Console.WriteLine("== rebuild with Contrast=10 ==");
+        p.Contrast = "10";
+        if (tool.CreateModelFromRegion(img, roi, p, out string msg2))
+        {
+            tool.TryGetBaseContour(out var br2, out var bc2);
+            int n2 = 0; foreach (var part in br2) n2 += part.Length;
+            Console.WriteLine("Contrast=10: " + n2 + " points (" + br2.Count + " parts)");
+        }
+        else Console.WriteLine("Contrast=10 FAIL: " + msg2);
+
+        // 角度范围 -360..360（用户场景）验证
+        Console.WriteLine("== angle -360..360 ==");
+        p.Contrast = "auto";
+        p.StartAngle = -360; p.AngleExtent = 720;
+        if (tool.CreateModelFromRegion(img, roi, p, out string msg3))
+        {
+            tool.TryGetBaseContour(out var br3, out var bc3);
+            int n3 = 0; foreach (var part in br3) n3 += part.Length;
+            Console.WriteLine("StartAngle=-360 AngleExtent=720: model OK, " + n3 + " pts (" + br3.Count + " parts)");
+            p.NumMatches = 5;
+            var o3 = tool.RunMatch(img, p, null);
+            foreach (var res in o3.Results)
+                Console.WriteLine("  match: row=" + res.Row + " col=" + res.Col + " angle=" + res.Angle + " score=" + res.Score);
+        }
+        else Console.WriteLine("StartAngle=-360 AngleExtent=720: CREATE FAIL: " + msg3);
+
+        // #4056 修复验证：模拟 RebuildTemplatePreview——调用方在 finally 里 Dispose 传入的 roi
+        Console.WriteLine("== roi ownership (was #4056) ==");
+        p.AngleStep = "auto";
+        HOperatorSet.GenRectangle1(out HObject roiTmp, 824, 1024, 1224, 1424);
+        bool okCreate = tool.CreateModelFromRegion(img, roiTmp, p, out string msgRoi);
+        roiTmp.Dispose();   // 调用方释放（修复前 _modelRegion 变 NULL → TryGetModelRoi 抛 #4056）
+        if (!okCreate) { Console.WriteLine("create FAIL: " + msgRoi); }
+        else
+        {
+            bool hasRoi = tool.TryGetModelRoi(out double r1x, out double c1x, out double r2x, out double c2x);
+            Console.WriteLine("after caller Dispose: TryGetModelRoi=" + hasRoi +
+                (hasRoi ? " r[" + r1x + "," + r2x + "] c[" + c1x + "," + c2x + "]" : ""));
+            // 且匹配仍正常
+            p.NumMatches = 2;
+            var oRoi = tool.RunMatch(img, p, null);
+            Console.WriteLine("match still OK: #0 score=" + oRoi.Results[0].Score);
+        }
+
+        // ===== 参数真正生效验证：get_shape_model_params 读回模型实际参数 =====
+        Console.WriteLine("== param effectiveness (shape model params readback) ==");
+        var midField = typeof(ShapeMatchTool).GetField("_modelId", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        foreach (string nl in new[] { "1", "2", "4", "8", "10" })
+        {
+            p.NumLevels = nl; p.Contrast = "auto"; p.MinContrast = "auto"; p.AngleStep = "auto";
+            p.Optimization = "auto"; p.Metric = "use_polarity";
+            if (tool.CreateModelFromRegion(img, roi, p, out string m1))
+            {
+                HTuple mid = (HTuple)midField.GetValue(tool);
+                HOperatorSet.GetShapeModelParams(mid, out HTuple pnl, out HTuple pas, out HTuple pae,
+                    out HTuple pstep, out HTuple popt, out HTuple pmet, out HTuple pminc, out HTuple pcont, out HTuple pcont2);
+                tool.TryGetBaseContour(out var brx, out var bcx);
+                int pts = 0; foreach (var part in brx) pts += part.Length;
+                p.NumMatches = 5; p.MinScore = 0.5;
+                var omx = tool.RunMatch(img, p, null);
+                string mres = omx.Results.Count > 0 ? omx.Results.Count + " results score0=" + omx.Results[0].Score.ToString("F4") : "0 results";
+                Console.WriteLine("UI NumLevels=" + nl + "  ->  model NumLevels=" + pnl.ToString() + ", pts=" + pts + ", match: " + mres);
+            }
+            else Console.WriteLine("NumLevels=" + nl + " CREATE FAIL: " + m1);
+        }
+        // Optimization / Metric / Contrast / AngleStep 读回
+        p.NumLevels = "auto"; p.Optimization = "none";
+        if (tool.CreateModelFromRegion(img, roi, p, out string m2))
+        {
+            HTuple mid = (HTuple)midField.GetValue(tool);
+            HOperatorSet.GetShapeModelParams(mid, out HTuple pnl, out HTuple pas, out HTuple pae,
+                out HTuple pstep, out HTuple popt, out HTuple pmet, out HTuple pminc, out HTuple pcont, out HTuple pcont2);
+            Console.WriteLine("UI Optimization=none  ->  model Optimization=" + popt.ToString() + ", pts=" + (SumPts(tool)));
+        }
+        p.Optimization = "auto"; p.Metric = "ignore_global_polarity";
+        if (tool.CreateModelFromRegion(img, roi, p, out string m3))
+        {
+            HTuple mid = (HTuple)midField.GetValue(tool);
+            HOperatorSet.GetShapeModelParams(mid, out HTuple pnl, out HTuple pas, out HTuple pae,
+                out HTuple pstep, out HTuple popt, out HTuple pmet, out HTuple pminc, out HTuple pcont, out HTuple pcont2);
+            Console.WriteLine("UI Metric=ignore_global_polarity  ->  model Metric=" + pmet.ToString() + ", pts=" + (SumPts(tool)));
+        }
+        p.Metric = "use_polarity"; p.Contrast = "200";
+        if (tool.CreateModelFromRegion(img, roi, p, out string m4))
+        {
+            HTuple mid = (HTuple)midField.GetValue(tool);
+            HOperatorSet.GetShapeModelParams(mid, out HTuple pnl, out HTuple pas, out HTuple pae,
+                out HTuple pstep, out HTuple popt, out HTuple pmet, out HTuple pminc, out HTuple pcont, out HTuple pcont2);
+            Console.WriteLine("UI Contrast=200  ->  model Contrast=" + pcont.ToString() + " MinContrast=" + pminc.ToString() + ", pts=" + (SumPts(tool)));
+        }
+        p.Contrast = "auto"; p.AngleStep = "2";
+        if (tool.CreateModelFromRegion(img, roi, p, out string m5))
+        {
+            HTuple mid = (HTuple)midField.GetValue(tool);
+            HOperatorSet.GetShapeModelParams(mid, out HTuple pnl, out HTuple pas, out HTuple pae,
+                out HTuple pstep, out HTuple popt, out HTuple pmet, out HTuple pminc, out HTuple pcont, out HTuple pcont2);
+            Console.WriteLine("UI AngleStep=2(deg)  ->  model AngleStep(rad)=" + pstep.ToString() + " (= " + (pstep.D * 180 / Math.PI) + " deg)");
+        }
+        p.AngleStep = "auto";
+
+        // 两次匹配不重叠验证：模拟用户流程（建模板→匹配20→改角度→重建→再匹配20）
+        Console.WriteLine("== double match (overlap check) ==");
+        p.NumMatches = 20;
+        p.StartAngle = -45; p.AngleExtent = 90;
+        var om1 = tool.RunMatch(img, p, null);
+        Console.WriteLine("1st match: " + om1.Results.Count + " results, " + om1.Contours.Count + " contour parts");
+        p.StartAngle = -360; p.AngleExtent = 720;
+        if (!tool.CreateModelFromRegion(img, roi, p, out string msgDbl)) { Console.WriteLine("rebuild FAIL: " + msgDbl); }
+        var om2 = tool.RunMatch(img, p, null);
+        Console.WriteLine("2nd match: " + om2.Results.Count + " results, " + om2.Contours.Count + " contour parts");
+        // 检查第二次结果是否包含第一次的轮廓（应为全新列表：第一次 100 段=20*5，第二次同参数也 100 段且对象独立）
+        bool same = ReferenceEquals(om1.Contours, om2.Contours);
+        Console.WriteLine("contour lists independent: " + (!same));
+        Console.WriteLine("2nd match #0: row=" + om2.Results[0].Row + " col=" + om2.Results[0].Col + " angle=" + om2.Results[0].Angle + " score=" + om2.Results[0].Score);
+        p.StartAngle = -45; p.AngleExtent = 90; p.NumMatches = 1;
+
+        // 灰度匹配（NCC）验证：text.bmp + 最小分数 0.8 匹配不到？
+        Console.WriteLine("== NCC match on text.bmp ==");
+        var nccTool = new NccMatchTool();
+        var np = new TemplateParams();
+        np.Contrast = "auto"; np.NumLevels = "auto";
+        HOperatorSet.GenRectangle1(out HObject nccRoi, 824, 1024, 1224, 1424);
+        if (!nccTool.CreateModelFromRegion(img, nccRoi, np, out string nccMsg))
+        {
+            Console.WriteLine("NCC create FAIL: " + nccMsg);
+        }
+        else
+        {
+            Console.WriteLine("NCC model created OK");
+            np.NumMatches = 20;
+            np.MinScore = 0.3;
+            var nccOut = nccTool.RunMatch(img, np, null);
+            Console.WriteLine("MinScore=0.3: " + nccOut.Results.Count + " results");
+            for (int ii = 0; ii < 5 && ii < nccOut.Results.Count; ii++)
+            {
+                var res = nccOut.Results[ii];
+                Console.WriteLine("  row=" + res.Row + " col=" + res.Col + " angle=" + res.Angle + " score=" + res.Score);
+            }
+            np.MinScore = 0.8;
+            try
+            {
+                var nccOut8 = nccTool.RunMatch(img, np, null);
+                Console.WriteLine("MinScore=0.8: " + nccOut8.Results.Count + " results");
+                for (int ii = 0; ii < 3 && ii < nccOut8.Results.Count; ii++)
+                {
+                    var res = nccOut8.Results[ii];
+                    Console.WriteLine("  row=" + res.Row + " col=" + res.Col + " angle=" + res.Angle + " score=" + res.Score);
+                }
+            }
+            catch (Exception ex) { Console.WriteLine("MinScore=0.8 RunMatch EXCEPTION: " + ex.Message); }
+
+            // 金字塔层数少的模型：验证 0.8 匹配不到是金字塔顶层分数低所致
+            var nccTool2 = new NccMatchTool();
+            var np2 = new TemplateParams();
+            np2.NumLevels = "2";   // 少层金字塔 → 顶层分数高 → 高阈值可匹配
+            HOperatorSet.GenRectangle1(out HObject nccRoi2, 824, 1024, 1224, 1424);
+            if (nccTool2.CreateModelFromRegion(img, nccRoi2, np2, out string nccMsg2))
+            {
+                np2.NumMatches = 20;
+                foreach (double ms2 in new double[] { 0.5, 0.7, 0.8 })
+                {
+                    np2.MinScore = ms2;
+                    var o2 = nccTool2.RunMatch(img, np2, null);
+                    Console.WriteLine("NumLevels=2 MinScore=" + ms2 + ": " + o2.Results.Count + " results" +
+                        (o2.Results.Count > 0 ? " score0=" + o2.Results[0].Score.ToString("F4") : ""));
+                }
+            }
+            else Console.WriteLine("NCC NumLevels=2 create FAIL: " + nccMsg2);
+
+            // 原生 find_ncc_model 验证（区分工具 bug vs HALCON 行为）
+            var modelField = typeof(NccMatchTool).GetField("_modelId", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            HTuple nccModelId = (HTuple)modelField.GetValue(nccTool);
+            HOperatorSet.Rgb1ToGray(img, out HObject nccGrayObj);
+            try
+            {
+                HOperatorSet.FindNccModel(nccGrayObj, nccModelId, -45 * Math.PI / 180, 90 * Math.PI / 180,
+                                          0.8, 20, 0.5, "true", 0, out HTuple nRow, out HTuple nCol, out HTuple nAng, out HTuple nSco);
+                Console.WriteLine("native FindNccModel MinScore=0.8: " + nRow.Length + " results");
+                for (int ii = 0; ii < Math.Min(3, nRow.Length); ii++)
+                    Console.WriteLine("  row=" + nRow.DArr[ii] + " col=" + nCol.DArr[ii] + " angle=" + (nAng.DArr[ii] * 180 / Math.PI) + " score=" + nSco.DArr[ii]);
+                // 0.85 / 0.9 / 0.95 梯度
+                foreach (double ms in new double[] { 0.85, 0.9, 0.95, 0.99 })
+                {
+                    HOperatorSet.FindNccModel(nccGrayObj, nccModelId, -45 * Math.PI / 180, 90 * Math.PI / 180,
+                                              ms, 20, 0.5, "true", 0, out HTuple nr2, out HTuple nc2, out HTuple na2, out HTuple ns2);
+                    Console.WriteLine("native MinScore=" + ms + ": " + nr2.Length + " results" + (nr2.Length > 0 ? " score0=" + ns2.DArr[0].ToString("F4") : ""));
+                }
+            }
+            finally { nccGrayObj.Dispose(); }
+        }
+
+        // NCC 参数读回（需在 nccTool/np/nccRoi 声明之后）
+        Console.WriteLine("== param effectiveness (ncc model params readback) ==");
+        var nf = typeof(NccMatchTool).GetField("_modelId", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        foreach (string nl in new[] { "1", "2", "4", "8", "10" })
+        {
+            np.NumLevels = nl; np.MinScore = 0.5;
+            if (nccTool.CreateModelFromRegion(img, nccRoi, np, out string mn))
+            {
+                HTuple nmid = (HTuple)nf.GetValue(nccTool);
+                HOperatorSet.GetNccModelParams(nmid, out HTuple npl, out HTuple npas, out HTuple npae, out HTuple npstep, out HTuple npmet);
+                np.NumMatches = 5;
+                var nom = nccTool.RunMatch(img, np, null);
+                string nres = nom.Results.Count > 0 ? nom.Results.Count + " results score0=" + nom.Results[0].Score.ToString("F4") : "0 results";
+                Console.WriteLine("UI NCC NumLevels=" + nl + "  ->  model NumLevels=" + npl.ToString() + ", match: " + nres);
+            }
+            else Console.WriteLine("NCC NumLevels=" + nl + " CREATE FAIL: " + mn);
+        }
+
+        // AngleStep 单位验证：UI 输入度数（1° / 0.5°），此前被当弧度传（1=57.3°）或小数截断成 0 报错
+        Console.WriteLine("== AngleStep unit test ==");
+        p.StartAngle = -45; p.AngleExtent = 90;
+        p.AngleStep = "1";
+        if (tool.CreateModelFromRegion(img, roi, p, out string msg5))
+        {
+            p.NumMatches = 2;
+            var o5 = tool.RunMatch(img, p, null);
+            Console.WriteLine("AngleStep=1 (1deg): model OK, match #0 angle=" + o5.Results[0].Angle + " score=" + o5.Results[0].Score);
+        }
+        else Console.WriteLine("AngleStep=1: CREATE FAIL: " + msg5);
+        p.AngleStep = "0.5";
+        if (tool.CreateModelFromRegion(img, roi, p, out string msg6))
+        {
+            p.NumMatches = 2;
+            var o6 = tool.RunMatch(img, p, null);
+            Console.WriteLine("AngleStep=0.5 (0.5deg): model OK, match #0 angle=" + o6.Results[0].Angle + " score=" + o6.Results[0].Score);
+        }
+        else Console.WriteLine("AngleStep=0.5: CREATE FAIL: " + msg6);
+        p.AngleStep = "auto";
+
+        // 角度范围 -360..0（extent=360 合法范围）
+        p.StartAngle = -360; p.AngleExtent = 360;
+        if (tool.CreateModelFromRegion(img, roi, p, out string msg4))
+        {
+            tool.TryGetBaseContour(out var br4, out var bc4);
+            int n4 = 0; foreach (var part in br4) n4 += part.Length;
+            Console.WriteLine("StartAngle=-360 AngleExtent=360: model OK, " + n4 + " pts (" + br4.Count + " parts)");
+            p.NumMatches = 5;
+            var o4 = tool.RunMatch(img, p, null);
+            foreach (var res in o4.Results)
+                Console.WriteLine("  match: row=" + res.Row + " col=" + res.Col + " angle=" + res.Angle + " score=" + res.Score);
+        }
+        else Console.WriteLine("StartAngle=-360 AngleExtent=360: CREATE FAIL: " + msg4);
+    }
+
+    /// <summary>模型轮廓总点数（验证用）</summary>
+    private static int SumPts(IMatchTool t)
+    {
+        t.TryGetBaseContour(out var rows, out var cols);
+        int n = 0;
+        foreach (var part in rows) n += part.Length;
+        return n;
+    }
+
+    /// <summary>与 MainWindow.ReadImageRobust 相同的稳健读图：WPF 流式解码 + GenImageInterleaved</summary>
+    private static HImage ReadImageRobust(string path)
+    {
+        using (var fs = File.OpenRead(path))
+        {
+            var decoder = BitmapDecoder.Create(fs, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+            BitmapSource src = decoder.Frames[0];
+            int w = src.PixelWidth, h = src.PixelHeight;
+            BitmapSource conv = src.Format == PixelFormats.Bgr24 ? src : new FormatConvertedBitmap(src, PixelFormats.Bgr24, null, 0);
+            int stride = w * 3;
+            byte[] buf = new byte[stride * h];
+            conv.CopyPixels(buf, stride, 0);
+            var gch = System.Runtime.InteropServices.GCHandle.Alloc(buf, System.Runtime.InteropServices.GCHandleType.Pinned);
+            try
+            {
+                HOperatorSet.GenImageInterleaved(out HObject im, gch.AddrOfPinnedObject(), "bgr", w, h, -1, "byte", w, h, 0, 0, 8, 0);
+                return new HImage(im);
+            }
+            finally { gch.Free(); }
+        }
+    }
+}

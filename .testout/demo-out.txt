@@ -1,0 +1,9 @@
+[SHAPE] create=创建模板成功 matches=1
+  [0] row=220, col=280, angle=0, score=1
+[SHAPE+SEARCH] matches=1, row=220, col=280, score=1
+[NCC] create=创建相关性模板成功 matches=1
+  [0] row=220, col=279.999, angle=0.001, score=1
+[FIT] create=拟合区域已设置 matches=1
+  type=圆 row=199.5, col=199.5, angle=0, size1=100.002, err=0.109
+[LOAD] shape=True(加载模板成功：C:\Users\17960\AppData\Local\Temp\vpt_demo_18988) matches=1; ncc=True(加载模板成功：C:\Users\17960\AppData\Local\Temp\vpt_demo_18988) matches=1
+RESULT: PASS

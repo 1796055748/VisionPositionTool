@@ -1,0 +1,60 @@
+using System;
+using System.Collections.Generic;
+using HalconDotNet;
+using VisionPositionTool.Core;
+using VisionPositionTool.Models;
+
+/// <summary>
+/// 无界面验证：修改模型参数 → 重建 → 轮廓点数是否变化。
+/// 验证 ParamConv 字符串→数字转换修复（此前 "50"/"1" 字符串直接传给 HALCON 报 #1307/#1301）。
+/// </summary>
+internal static class Program
+{
+    private static void Main()
+    {
+        // 合成图：512x512 黑底 + 三个灰度不同的矩形（255/128/64），边缘强度梯度
+        HOperatorSet.GenImageConst(out HObject img, "byte", 512, 512);
+        HOperatorSet.GenRectangle1(out HObject r1, 100, 100, 300, 300);
+        HOperatorSet.PaintRegion(r1, img, out HObject m1, 255, "fill");
+        r1.Dispose();
+        HOperatorSet.GenRectangle1(out HObject r2, 180, 180, 380, 380);
+        HOperatorSet.PaintRegion(r2, m1, out HObject m2, 128, "fill");
+        r2.Dispose(); m1.Dispose();
+        HOperatorSet.GenRectangle1(out HObject r3, 260, 260, 460, 460);
+        HOperatorSet.PaintRegion(r3, m2, out HObject m3, 64, "fill");
+        r3.Dispose(); m2.Dispose();
+        HOperatorSet.GenRectangle1(out HObject roi, 80, 80, 480, 480);
+
+        var tool = new ShapeMatchTool();
+        var p = new TemplateParams();
+
+        Dump(tool, p, m3, roi, "Contrast=auto  MinContrast=auto");
+        p.Contrast = "50";
+        Dump(tool, p, m3, roi, "Contrast=50    MinContrast=auto (弱边缘消失)");
+        p.Contrast = "200";
+        Dump(tool, p, m3, roi, "Contrast=200   MinContrast=auto (只剩最强)");
+        p.Contrast = "auto"; p.MinContrast = "50";
+        Dump(tool, p, m3, roi, "Contrast=auto  MinContrast=50");
+        p.MinContrast = "auto"; p.NumLevels = "4";
+        Dump(tool, p, m3, roi, "NumLevels=4    (轮廓不应变)");
+        p.NumLevels = "auto";
+        Dump(tool, p, m3, roi, "NumLevels=auto (轮廓应恢复)");
+    }
+
+    private static void Dump(IMatchTool tool, TemplateParams p, HObject img, HObject roi, string label)
+    {
+        if (!tool.CreateModelFromRegion(img, roi, p, out string msg))
+        {
+            Console.WriteLine(label + " -> FAIL: " + msg);
+            return;
+        }
+        if (!tool.TryGetBaseContour(out List<double[]> rows, out List<double[]> cols))
+        {
+            Console.WriteLine(label + " -> NO CONTOUR");
+            return;
+        }
+        int n = 0;
+        foreach (var part in rows) n += part.Length;
+        Console.WriteLine(label + " -> " + n + " points (" + rows.Count + " parts)");
+    }
+}
